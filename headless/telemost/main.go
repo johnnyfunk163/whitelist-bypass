@@ -302,29 +302,6 @@ func (b *Bridge) sendICE(cand *webrtc.ICECandidate, target string, pcSeq int) {
 	})
 }
 
-func (b *Bridge) requestVideoSlots() {
-	b.setSlotsKey++
-	log.Printf("[tm-ws] -> setSlots key=%d", b.setSlotsKey)
-	b.wsSend(tmapi.SetSlotsMessage(b.setSlotsKey))
-}
-
-func (b *Bridge) forceReconnect(reason string) {
-	oldPeerID := b.connInfo.PeerID
-	log.Printf("[tm-ws] forcing reconnect: %s", reason)
-	if oldPeerID != "" {
-		log.Printf("[tm-ws] kicking self pid=%s to leave call cleanly", oldPeerID)
-		if err := b.kickPeer(oldPeerID); err != nil {
-			log.Printf("[tm-ws] self-kick failed: %v", err)
-		}
-	}
-	clientInstanceID = uuid.New().String()
-	log.Printf("[tm-ws] new instance-id=%s", clientInstanceID)
-	b.mu.Lock()
-	ws := b.ws
-	b.mu.Unlock()
-	common.CloseWS(ws)
-}
-
 func (b *Bridge) sendInitBundle() {
 	if b.initBundleSent {
 		return
