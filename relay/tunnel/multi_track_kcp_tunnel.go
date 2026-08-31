@@ -18,7 +18,7 @@ const (
 	// loses only its own frame, not a two-packet frame that readVP8Track
 	// would discard whole. 1200 RTP budget - 1 VP8 descriptor - interframe
 	// header - 24 XChaCha20 nonce - 16 Poly1305 tag - 1 channel tag.
-	kcpSegmentMTU = 1200 - 1 - interframeHdrLen - 24 - 16 - 1
+	kcpSegmentMTU     = 1200 - 1 - interframeHdrLen - 24 - 16 - 1
 	kcpReceiveBufSize = 128 * 1024
 	kcpStatsEvery     = 500
 

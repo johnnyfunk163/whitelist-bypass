@@ -50,6 +50,8 @@ type VP8DataTunnel struct {
 	OnData        func([]byte)
 	OnClose       func()
 	OnPeerRestart func()
+
+	WriteFrame func([]byte) error
 }
 
 func (t *VP8DataTunnel) SetOnData(fn func([]byte))  { t.OnData = fn }
@@ -276,7 +278,14 @@ func (t *VP8DataTunnel) writerLoop() {
 				if sample == nil {
 					continue
 				}
-				if err := t.track.WriteSample(media.Sample{Data: sample, Duration: sampleInterval}); err != nil {
+				if t.WriteFrame != nil {
+					if err := t.WriteFrame(sample); err != nil {
+						if common.Debug {
+							t.logFn("vp8tunnel: WriteFrame error: %v", err)
+						}
+						continue
+					}
+				} else if err := t.track.WriteSample(media.Sample{Data: sample, Duration: sampleInterval}); err != nil {
 					if common.Debug {
 						t.logFn("vp8tunnel: WriteSample error: %v", err)
 					}
