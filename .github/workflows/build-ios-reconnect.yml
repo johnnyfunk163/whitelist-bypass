@@ -1,4 +1,4 @@
-name: Build iOS VK Mobile v2
+name: Build iOS VK Mobile v3 KCP
 
 on:
   workflow_dispatch:
@@ -40,12 +40,21 @@ jobs:
           vk_path = Path("relay/pion/headless-joiner-common/vk_joiner.go")
           vk = vk_path.read_text()
 
-          vk = must_sub(vk, r"(\tdualTrack\s+bool\n)(\tremoteSet\s+bool)", lambda m: m.group(1) + "\tforceRelay     bool\n" + m.group(2), "VK forceRelay field")
+          vk = must_sub(
+              vk,
+              r"(\tdualTrack\s+bool\n)(\tremoteSet\s+bool)",
+              lambda m: m.group(1) + "\tforceRelay     bool\n" + m.group(2),
+              "VK forceRelay field",
+          )
 
           marker = "func (h *VKHeadlessJoiner) MarkConfigAcked() { h.configAck.mark() }"
           if marker not in vk:
               raise SystemExit("ERROR: MarkConfigAcked not found")
-          vk = vk.replace(marker, marker + "\n\nfunc (h *VKHeadlessJoiner) SetForceRelay(enabled bool) {\n\th.forceRelay = enabled\n}", 1)
+          vk = vk.replace(
+              marker,
+              marker + "\n\nfunc (h *VKHeadlessJoiner) SetForceRelay(enabled bool) {\n\th.forceRelay = enabled\n}",
+              1,
+          )
 
           pc_pattern = r"\tpc, err := webrtc\.NewAPI\(webrtc\.WithSettingEngine\(settingEngine\)\)\.NewPeerConnection\(webrtc\.Configuration\{\n\t\tICEServers: iceServers,\n\t\}\)"
           pc_repl = "\tpcConfig := webrtc.Configuration{ICEServers: iceServers}\n\tif h.forceRelay {\n\t\tpcConfig.ICETransportPolicy = webrtc.ICETransportPolicyRelay\n\t\th.logFn(\"vk-joiner: ICE policy: RELAY (Force TURN enabled)\")\n\t}\n\tpc, err := webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine)).NewPeerConnection(pcConfig)"
@@ -65,12 +74,36 @@ jobs:
           swift = swift_path.read_text()
 
           replacements = [
-              ("        startSupervisor()\n        launchHeadless()", "        detectedPlatform = CallPlatform.detect(url: callUrl)\n        if detectedPlatform == .vk {\n            stopSupervisor()\n            appendLog(\"VK Mobile v2: Go reconnect active; outer restart disabled\")\n        } else {\n            startSupervisor()\n        }\n        launchHeadless()", "supervisor start"),
-              ("            if isArmed {\n                // The Go joiner gives up for good if the very first attempt fails, so the\n                // restart has to come from here.\n                scheduleRestart(reason: errorText)\n            } else {\n                isRunning = false\n            }", "            if isArmed && detectedPlatform != .vk {\n                scheduleRestart(reason: errorText)\n            } else {\n                isRunning = false\n                if detectedPlatform == .vk {\n                    appendLog(\"VK Mobile v2: full auth restart suppressed to avoid CAPTCHA loop\")\n                }\n            }", "ERROR restart"),
-              ("    private func supervisorTick() {\n        guard isArmed else { return }\n        guard status != .tunnelConnected else { return }", "    private func supervisorTick() {\n        guard isArmed else { return }\n        guard detectedPlatform != .vk else { return }\n        guard status != .tunnelConnected else { return }", "supervisorTick"),
-              ("    private func scheduleRestart(reason: String) {\n        guard isArmed, pendingRestart == nil else { return }", "    private func scheduleRestart(reason: String) {\n        guard isArmed, detectedPlatform != .vk, pendingRestart == nil else { return }", "scheduleRestart"),
-              ("    private func restartNow(reason: String) {\n        guard isArmed else { return }", "    private func restartNow(reason: String) {\n        guard isArmed, detectedPlatform != .vk else { return }", "restartNow"),
-              ("    @objc private func appDidBecomeActive() {\n        guard isArmed, status != .tunnelConnected else { return }", "    @objc private func appDidBecomeActive() {\n        guard isArmed, detectedPlatform != .vk, status != .tunnelConnected else { return }", "foreground restart"),
+              (
+                  "        startSupervisor()\n        launchHeadless()",
+                  "        detectedPlatform = CallPlatform.detect(url: callUrl)\n        if detectedPlatform == .vk {\n            stopSupervisor()\n            appendLog(\"VK Mobile v3: Go reconnect active; outer restart disabled\")\n        } else {\n            startSupervisor()\n        }\n        launchHeadless()",
+                  "supervisor start",
+              ),
+              (
+                  "            if isArmed {\n                // The Go joiner gives up for good if the very first attempt fails, so the\n                // restart has to come from here.\n                scheduleRestart(reason: errorText)\n            } else {\n                isRunning = false\n            }",
+                  "            if isArmed && detectedPlatform != .vk {\n                scheduleRestart(reason: errorText)\n            } else {\n                isRunning = false\n                if detectedPlatform == .vk {\n                    appendLog(\"VK Mobile v3: full auth restart suppressed to avoid CAPTCHA loop\")\n                }\n            }",
+                  "ERROR restart",
+              ),
+              (
+                  "    private func supervisorTick() {\n        guard isArmed else { return }\n        guard status != .tunnelConnected else { return }",
+                  "    private func supervisorTick() {\n        guard isArmed else { return }\n        guard detectedPlatform != .vk else { return }\n        guard status != .tunnelConnected else { return }",
+                  "supervisorTick",
+              ),
+              (
+                  "    private func scheduleRestart(reason: String) {\n        guard isArmed, pendingRestart == nil else { return }",
+                  "    private func scheduleRestart(reason: String) {\n        guard isArmed, detectedPlatform != .vk, pendingRestart == nil else { return }",
+                  "scheduleRestart",
+              ),
+              (
+                  "    private func restartNow(reason: String) {\n        guard isArmed else { return }",
+                  "    private func restartNow(reason: String) {\n        guard isArmed, detectedPlatform != .vk else { return }",
+                  "restartNow",
+              ),
+              (
+                  "    @objc private func appDidBecomeActive() {\n        guard isArmed, status != .tunnelConnected else { return }",
+                  "    @objc private func appDidBecomeActive() {\n        guard isArmed, detectedPlatform != .vk, status != .tunnelConnected else { return }",
+                  "foreground restart",
+              ),
           ]
 
           for old, new, label in replacements:
@@ -79,10 +112,72 @@ jobs:
               swift = swift.replace(old, new, 1)
 
           swift_path.write_text(swift)
-          print("VK Mobile v2 patch applied")
+
+          print("VK Mobile base patch applied")
           print("iOS VK Force TURN: ON")
           print("Outer Swift VK restart: OFF")
           print("Internal Go VK reconnect: ON")
+          PY
+
+      - name: Apply VK Video KCP reliability v3
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f"ERROR: {label} pattern not found")
+              return text.replace(old, new, 1)
+
+          # JOINER: wrap video VP8 carrier in single-track KCP.
+          p = Path("relay/pion/headless-joiner-common/vk_joiner.go")
+          s = p.read_text()
+
+          old = """\t\t\tvar downlink tunnel.DataTunnel = h.vp8tunnel
+\t\t\ttrackCount := 1"""
+          new = """\t\t\tmt := tunnel.NewMultiTrackTunnel([]*tunnel.VP8DataTunnel{h.vp8tunnel})
+\t\t\tkcpTun := tunnel.NewMultiTrackKCPTunnel(mt, h.logFn)
+\t\t\tvar downlink tunnel.DataTunnel = kcpTun
+\t\t\ttrackCount := 1
+\t\t\th.logFn("vk-joiner: === VIDEO+KCP RELIABLE TUNNEL ACTIVE ===")"""
+
+          s = replace_once(s, old, new, "joiner video KCP")
+          p.write_text(s)
+
+          # CREATOR: use the exact same KCP framing on video mode.
+          p = Path("headless/vk/tunnel_relay.go")
+          s = p.read_text()
+
+          old = """\t\t\tvar downlink tunnel.DataTunnel = u.tun
+\t\t\tif u.screenDC != nil {"""
+          new = """\t\t\tmt := tunnel.NewMultiTrackTunnel([]*tunnel.VP8DataTunnel{u.tun})
+\t\t\tkcpTun := tunnel.NewMultiTrackKCPTunnel(mt, log.Printf)
+\t\t\tvar downlink tunnel.DataTunnel = kcpTun
+\t\t\tlog.Println("[relay] === MODE: VIDEO+KCP RELIABLE ===")
+\t\t\tif false && u.screenDC != nil {"""
+
+          s = replace_once(s, old, new, "creator video KCP")
+          p.write_text(s)
+
+          # CREATOR bridge: KCP reassembles full relay frames, so use the
+          # larger DC read buffer rather than the raw VP8-sized buffer.
+          p = Path("headless/vk/main.go")
+          s = p.read_text()
+
+          old = """\t\tur.OnConnected = func(tun tunnel.DataTunnel) {
+\t\t\trb := tunnel.NewRelayBridge(tun, "creator", common.VP8BufSize, log.Printf)"""
+          new = """\t\tur.OnConnected = func(tun tunnel.DataTunnel) {
+\t\t\tbridgeReadBuf := common.VP8BufSize
+\t\t\tif _, ok := tun.(*tunnel.MultiTrackKCPTunnel); ok {
+\t\t\t\tbridgeReadBuf = common.DCBufSize
+\t\t\t}
+\t\t\trb := tunnel.NewRelayBridge(tun, "creator", bridgeReadBuf, log.Printf)
+\t\t\tlog.Printf("[config] creator tunnel=%T readBuf=%d", tun, bridgeReadBuf)"""
+
+          s = replace_once(s, old, new, "creator KCP bridge buffer")
+          p.write_text(s)
+
+          print("VK VIDEO KCP v3 patch applied to JOINER + CREATOR")
           PY
 
       - name: Setup Go
@@ -103,19 +198,35 @@ jobs:
           go mod tidy
           cd ..
 
-      - name: Build IPA
+      - name: Build iOS IPA
         run: |
           chmod +x build-ios.sh
           ./build-ios.sh
 
-      - name: Verify IPA
+      - name: Build Linux VK creator
         run: |
-          ls -lah prebuilts/
-          test -f prebuilts/whitelist-bypass-proxy.ipa
+          mkdir -p prebuilts
+          cd headless/vk
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o ../../prebuilts/headless-vk-creator-linux-x64 .
+          cd ../..
+          chmod +x prebuilts/headless-vk-creator-linux-x64
 
-      - name: Upload IPA
+      - name: Verify artifacts
+        run: |
+          test -f prebuilts/whitelist-bypass-proxy.ipa
+          test -f prebuilts/headless-vk-creator-linux-x64
+          ls -lah prebuilts/
+
+      - name: Upload iOS IPA
         uses: actions/upload-artifact@v4
         with:
-          name: whitelist-bypass-ios-v2-vk-mobile
+          name: whitelist-bypass-ios-v3-vk-kcp
           path: prebuilts/whitelist-bypass-proxy.ipa
+          if-no-files-found: error
+
+      - name: Upload Linux VK creator
+        uses: actions/upload-artifact@v4
+        with:
+          name: headless-vk-creator-linux-x64-v3-kcp
+          path: prebuilts/headless-vk-creator-linux-x64
           if-no-files-found: error
