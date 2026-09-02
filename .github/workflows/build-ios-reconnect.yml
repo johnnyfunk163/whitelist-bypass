@@ -133,13 +133,8 @@ jobs:
           p = Path("relay/pion/headless-joiner-common/vk_joiner.go")
           s = p.read_text()
 
-          old = """\t\t\tvar downlink tunnel.DataTunnel = h.vp8tunnel
-\t\t\ttrackCount := 1"""
-          new = """\t\t\tmt := tunnel.NewMultiTrackTunnel([]*tunnel.VP8DataTunnel{h.vp8tunnel})
-\t\t\tkcpTun := tunnel.NewMultiTrackKCPTunnel(mt, h.logFn)
-\t\t\tvar downlink tunnel.DataTunnel = kcpTun
-\t\t\ttrackCount := 1
-\t\t\th.logFn("vk-joiner: === VIDEO+KCP RELIABLE TUNNEL ACTIVE ===")"""
+          old = "\t\t\tvar downlink tunnel.DataTunnel = h.vp8tunnel\n\t\t\ttrackCount := 1"
+          new = "\t\t\tmt := tunnel.NewMultiTrackTunnel([]*tunnel.VP8DataTunnel{h.vp8tunnel})\n\t\t\tkcpTun := tunnel.NewMultiTrackKCPTunnel(mt, h.logFn)\n\t\t\tvar downlink tunnel.DataTunnel = kcpTun\n\t\t\ttrackCount := 1\n\t\t\th.logFn(\"vk-joiner: === VIDEO+KCP RELIABLE TUNNEL ACTIVE ===\")"
 
           s = replace_once(s, old, new, "joiner video KCP")
           p.write_text(s)
@@ -148,13 +143,8 @@ jobs:
           p = Path("headless/vk/tunnel_relay.go")
           s = p.read_text()
 
-          old = """\t\t\tvar downlink tunnel.DataTunnel = u.tun
-\t\t\tif u.screenDC != nil {"""
-          new = """\t\t\tmt := tunnel.NewMultiTrackTunnel([]*tunnel.VP8DataTunnel{u.tun})
-\t\t\tkcpTun := tunnel.NewMultiTrackKCPTunnel(mt, log.Printf)
-\t\t\tvar downlink tunnel.DataTunnel = kcpTun
-\t\t\tlog.Println("[relay] === MODE: VIDEO+KCP RELIABLE ===")
-\t\t\tif false && u.screenDC != nil {"""
+          old = "\t\t\tvar downlink tunnel.DataTunnel = u.tun\n\t\t\tif u.screenDC != nil {"
+          new = "\t\t\tmt := tunnel.NewMultiTrackTunnel([]*tunnel.VP8DataTunnel{u.tun})\n\t\t\tkcpTun := tunnel.NewMultiTrackKCPTunnel(mt, log.Printf)\n\t\t\tvar downlink tunnel.DataTunnel = kcpTun\n\t\t\tlog.Println(\"[relay] === MODE: VIDEO+KCP RELIABLE ===\")\n\t\t\tif false && u.screenDC != nil {"
 
           s = replace_once(s, old, new, "creator video KCP")
           p.write_text(s)
@@ -164,15 +154,8 @@ jobs:
           p = Path("headless/vk/main.go")
           s = p.read_text()
 
-          old = """\t\tur.OnConnected = func(tun tunnel.DataTunnel) {
-\t\t\trb := tunnel.NewRelayBridge(tun, "creator", common.VP8BufSize, log.Printf)"""
-          new = """\t\tur.OnConnected = func(tun tunnel.DataTunnel) {
-\t\t\tbridgeReadBuf := common.VP8BufSize
-\t\t\tif _, ok := tun.(*tunnel.MultiTrackKCPTunnel); ok {
-\t\t\t\tbridgeReadBuf = common.DCBufSize
-\t\t\t}
-\t\t\trb := tunnel.NewRelayBridge(tun, "creator", bridgeReadBuf, log.Printf)
-\t\t\tlog.Printf("[config] creator tunnel=%T readBuf=%d", tun, bridgeReadBuf)"""
+          old = "\t\tur.OnConnected = func(tun tunnel.DataTunnel) {\n\t\t\trb := tunnel.NewRelayBridge(tun, \"creator\", common.VP8BufSize, log.Printf)"
+          new = "\t\tur.OnConnected = func(tun tunnel.DataTunnel) {\n\t\t\tbridgeReadBuf := common.VP8BufSize\n\t\t\tif _, ok := tun.(*tunnel.MultiTrackKCPTunnel); ok {\n\t\t\t\tbridgeReadBuf = common.DCBufSize\n\t\t\t}\n\t\t\trb := tunnel.NewRelayBridge(tun, \"creator\", bridgeReadBuf, log.Printf)\n\t\t\tlog.Printf(\"[config] creator tunnel=%T readBuf=%d\", tun, bridgeReadBuf)"
 
           s = replace_once(s, old, new, "creator KCP bridge buffer")
           p.write_text(s)
