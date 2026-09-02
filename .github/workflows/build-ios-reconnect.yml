@@ -1,4 +1,4 @@
-name: Build iOS Reconnect IPA
+name: Build iOS VK Mobile v2
 
 on:
   workflow_dispatch:
@@ -8,19 +8,229 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout current main
+      - name: Checkout upstream main
         uses: actions/checkout@v4
         with:
           repository: kulikov0/whitelist-bypass
           ref: main
           fetch-depth: 0
 
-      - name: Apply iOS reconnect fix from PR 174
+      - name: Apply iOS reconnect PR 174
         run: |
           git fetch https://github.com/Jynk0-btw/whitelist-bypass.git ios-reconnect
           git cherry-pick 07924ecda7924d2198202d88bd6a68ed9d83b669
 
-      - name: Setup Go 1.26
+      - name: Apply VK iOS mobile fixes
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          # ============================================
+          # VK Go joiner: optional Force TURN relay
+          # ============================================
+
+          p = Path("relay/pion/headless-joiner-common/vk_joiner.go")
+          s = p.read_text()
+
+          old = """\tdualTrack       bool
+\tremoteSet      bool"""
+
+          new = """\tdualTrack       bool
+\tforceRelay     bool
+\tremoteSet      bool"""
+
+          if old not in s:
+              raise SystemExit("ERROR: VK struct pattern not found")
+
+          s = s.replace(old, new, 1)
+
+          old = """func (h *VKHeadlessJoiner) MarkConfigAcked() { h.configAck.mark() }"""
+
+          new = """func (h *VKHeadlessJoiner) MarkConfigAcked() { h.configAck.mark() }
+
+func (h *VKHeadlessJoiner) SetForceRelay(enabled bool) {
+\th.forceRelay = enabled
+}"""
+
+          if old not in s:
+              raise SystemExit("ERROR: MarkConfigAcked pattern not found")
+
+          s = s.replace(old, new, 1)
+
+          old = """\tpc, err := webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine)).NewPeerConnection(webrtc.Configuration{
+\t\tICEServers: iceServers,
+\t})"""
+
+          new = """\tpcConfig := webrtc.Configuration{
+\t\tICEServers: iceServers,
+\t}
+
+\tif h.forceRelay {
+\t\tpcConfig.ICETransportPolicy = webrtc.ICETransportPolicyRelay
+\t\th.logFn("vk-joiner: ICE policy: RELAY (Force TURN enabled)")
+\t}
+
+\tpc, err := webrtc.NewAPI(
+\t\twebrtc.WithSettingEngine(settingEngine),
+\t).NewPeerConnection(pcConfig)"""
+
+          if old not in s:
+              raise SystemExit("ERROR: PeerConnection pattern not found")
+
+          s = s.replace(old, new, 1)
+
+          p.write_text(s)
+
+          # ============================================
+          # iOS only: enable Force TURN for VK
+          # ============================================
+
+          p = Path("relay/pion/ios/mobile.go")
+          s = p.read_text()
+
+          old = """\tvkJoiner := joiner.NewVKHeadlessJoiner(logFn, resolveFn, statusEmitter, nil, pion.AddTunnelTracks, pion.ReadTrack)
+\tvkJoiner.OnConnected = makeOnConnected(socksPort, socksUser, socksPass, logFn, callback, vkJoiner.MarkConfigAcked)"""
+
+          new = """\tvkJoiner := joiner.NewVKHeadlessJoiner(logFn, resolveFn, statusEmitter, nil, pion.AddTunnelTracks, pion.ReadTrack)
+
+\t// iOS mobile networks can sit behind restrictive/symmetric CGNAT.
+\t// Force VK WebRTC media through TURN instead of attempting direct ICE paths.
+\tvkJoiner.SetForceRelay(true)
+\tlogFn("ios: VK Force TURN relay ENABLED")
+
+\tvkJoiner.OnConnected = makeOnConnected(socksPort, socksUser, socksPass, logFn, callback, vkJoiner.MarkConfigAcked)"""
+
+          if old not in s:
+              raise SystemExit("ERROR: iOS VK joiner pattern not found")
+
+          s = s.replace(old, new, 1)
+
+          p.write_text(s)
+
+          # ============================================
+          # Swift supervisor:
+          # VK already reconnects internally in Go.
+          # Do NOT repeatedly restart VK authentication.
+          # ============================================
+
+          p = Path(
+              "ios-proxy-app/whitelist-bypass-proxy/ProxyManager.swift"
+          )
+
+          s = p.read_text()
+
+          old = """        startSupervisor()
+        launchHeadless()"""
+
+          new = """        detectedPlatform = CallPlatform.detect(url: callUrl)
+
+        if detectedPlatform == .vk {
+            stopSupervisor()
+            appendLog("VK Mobile v2: internal Go reconnect enabled")
+            appendLog("VK Mobile v2: outer restart disabled to prevent CAPTCHA loop")
+        } else {
+            startSupervisor()
+        }
+
+        launchHeadless()"""
+
+          if old not in s:
+              raise SystemExit("ERROR: supervisor startup pattern not found")
+
+          s = s.replace(old, new, 1)
+
+          old = """            if isArmed {
+                // The Go joiner gives up for good if the very first attempt fails, so the
+                // restart has to come from here.
+                scheduleRestart(reason: errorText)
+            } else {
+                isRunning = false
+            }"""
+
+          new = """            if isArmed && detectedPlatform != .vk {
+                scheduleRestart(reason: errorText)
+            } else {
+                isRunning = false
+
+                if detectedPlatform == .vk {
+                    appendLog("VK Mobile v2: full auth restart suppressed")
+                }
+            }"""
+
+          if old not in s:
+              raise SystemExit("ERROR: ERROR handler pattern not found")
+
+          s = s.replace(old, new, 1)
+
+          old = """    private func supervisorTick() {
+        guard isArmed else { return }
+        guard status != .tunnelConnected else { return }"""
+
+          new = """    private func supervisorTick() {
+        guard isArmed else { return }
+        guard detectedPlatform != .vk else { return }
+        guard status != .tunnelConnected else { return }"""
+
+          if old not in s:
+              raise SystemExit("ERROR: supervisorTick pattern not found")
+
+          s = s.replace(old, new, 1)
+
+          old = """    private func scheduleRestart(reason: String) {
+        guard isArmed, pendingRestart == nil else { return }"""
+
+          new = """    private func scheduleRestart(reason: String) {
+        guard isArmed, detectedPlatform != .vk, pendingRestart == nil else {
+            if detectedPlatform == .vk {
+                appendLog("VK Mobile v2: Swift restart blocked")
+            }
+            return
+        }"""
+
+          if old not in s:
+              raise SystemExit("ERROR: scheduleRestart pattern not found")
+
+          s = s.replace(old, new, 1)
+
+          old = """    private func restartNow(reason: String) {
+        guard isArmed else { return }"""
+
+          new = """    private func restartNow(reason: String) {
+        guard isArmed, detectedPlatform != .vk else {
+            if isArmed && detectedPlatform == .vk {
+                appendLog("VK Mobile v2: network-change full restart suppressed")
+            }
+            return
+        }"""
+
+          if old not in s:
+              raise SystemExit("ERROR: restartNow pattern not found")
+
+          s = s.replace(old, new, 1)
+
+          old = """    @objc private func appDidBecomeActive() {
+        guard isArmed, status != .tunnelConnected else { return }"""
+
+          new = """    @objc private func appDidBecomeActive() {
+        guard isArmed, detectedPlatform != .vk, status != .tunnelConnected else { return }"""
+
+          if old not in s:
+              raise SystemExit("ERROR: appDidBecomeActive pattern not found")
+
+          s = s.replace(old, new, 1)
+
+          p.write_text(s)
+
+          print("============================================")
+          print("VK MOBILE V2 PATCH APPLIED")
+          print("- iOS VK Force TURN: ON")
+          print("- VK Swift supervisor: OFF")
+          print("- VK Go reconnect: ON")
+          print("- CAPTCHA restart loop: suppressed")
+          print("============================================")
+          PY
+
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.26.x'
@@ -31,7 +241,7 @@ jobs:
           go install golang.org/x/mobile/cmd/gobind@latest
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
-      - name: Check Go dependencies
+      - name: Prepare dependencies
         run: |
           cd relay
           go mod download
@@ -51,6 +261,6 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: whitelist-bypass-ios-reconnect
+          name: whitelist-bypass-ios-v2-vk-mobile
           path: prebuilts/whitelist-bypass-proxy.ipa
           if-no-files-found: error
