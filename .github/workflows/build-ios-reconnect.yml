@@ -1,0 +1,44 @@
+name: Build iOS Reconnect IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout PR 174
+        uses: actions/checkout@v4
+        with:
+          repository: kulikov0/whitelist-bypass
+          ref: refs/pull/174/head
+          fetch-depth: 1
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+
+      - name: Build IPA
+        run: |
+          chmod +x build-ios.sh
+          ./build-ios.sh
+
+      - name: Verify IPA
+        run: |
+          ls -lah prebuilts/
+          test -f prebuilts/whitelist-bypass-proxy.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: whitelist-bypass-ios-reconnect
+          path: prebuilts/whitelist-bypass-proxy.ipa
+          if-no-files-found: error
