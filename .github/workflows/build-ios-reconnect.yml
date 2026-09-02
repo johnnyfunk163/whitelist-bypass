@@ -1,4 +1,4 @@
-name: Build iOS VK Mobile v3 KCP
+name: Build iOS VK Mobile v3.1 Stable Video
 
 on:
   workflow_dispatch:
@@ -163,6 +163,35 @@ jobs:
           print("VK VIDEO KCP v3 patch applied to JOINER + CREATOR")
           PY
 
+      - name: Apply v3.1 mobile stability tuning
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f"ERROR: {label} pattern not found")
+              return text.replace(old, new, 1)
+
+          p = Path("relay/tunnel/multi_track_kcp_tunnel.go")
+          s = p.read_text()
+          old = "kcpSegmentMTU     = 1200 - 1 - interframeHdrLen - 24 - 16 - 1"
+          new = "kcpSegmentMTU     = 900"
+          s = replace_once(s, old, new, "KCP MTU")
+          p.write_text(s)
+
+          p = Path("relay/pion/ios/mobile.go")
+          s = p.read_text()
+          old = "\\tlogFn, resolveFn, statusEmitter := makeHelpers(callback)\\n\\tvkJoiner := joiner.NewVKHeadlessJoiner(logFn, resolveFn, statusEmitter, nil, pion.AddTunnelTracks, pion.ReadTrack)"
+          new = "\\tlogFn, resolveFn, statusEmitter := makeHelpers(callback)\\n\\tif tunnelMode == \\\"video\\\" {\\n\\t\\tif vp8Fps <= 0 || vp8Fps > 24 {\\n\\t\\t\\tvp8Fps = 24\\n\\t\\t}\\n\\t\\tif vp8Batch <= 0 || vp8Batch > 10 {\\n\\t\\t\\tvp8Batch = 10\\n\\t\\t}\\n\\t\\tlogFn(\\\"ios: VK v3.1 stable-video pacing fps=%d batch=%d\\\", vp8Fps, vp8Batch)\\n\\t}\\n\\tvkJoiner := joiner.NewVKHeadlessJoiner(logFn, resolveFn, statusEmitter, nil, pion.AddTunnelTracks, pion.ReadTrack)"
+          s = replace_once(s, old, new, "iOS stable-video pacing")
+          p.write_text(s)
+
+          print("VK v3.1 stability tuning applied")
+          print("KCP MTU: 900")
+          print("VK Video max pacing: 24 fps / batch 10")
+          PY
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -203,13 +232,13 @@ jobs:
       - name: Upload iOS IPA
         uses: actions/upload-artifact@v4
         with:
-          name: whitelist-bypass-ios-v3-vk-kcp
+          name: whitelist-bypass-ios-v3-1-stable-video
           path: prebuilts/whitelist-bypass-proxy.ipa
           if-no-files-found: error
 
       - name: Upload Linux VK creator
         uses: actions/upload-artifact@v4
         with:
-          name: headless-vk-creator-linux-x64-v3-kcp
+          name: headless-vk-creator-linux-x64-v3-1-stable-video
           path: prebuilts/headless-vk-creator-linux-x64
           if-no-files-found: error
